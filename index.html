@@ -34,18 +34,18 @@ header{display:flex;justify-content:space-between;align-items:center;gap:15px;ma
 <div class="group hidden" id="manualGroup"><label class="label" for="imagesInput">Imágenes / fotogramas</label><label class="drop" for="imagesInput"><em>▧</em><b>Seleccionar imágenes</b><small>PNG, JPG, WebP · varias imágenes</small></label><input id="imagesInput" type="file" accept="image/*" multiple><div class="file" id="imagesLabel">Ninguna imagen seleccionada</div></div>
 <div class="group"><label class="label" for="audioInput">Audio adicional / música</label><label class="drop" for="audioInput"><em>♫</em><b>Importar audio</b><small>MP3, WAV, OGG, M4A</small></label><input id="audioInput" type="file" accept="audio/*"><div class="file" id="audioLabel">Sin audio adicional</div></div>
 <div class="group" id="audioOptions"><label class="label" for="audioMode">Mezcla de audio</label><select class="select" id="audioMode"><option value="original">Conservar audio original</option><option value="replace">Reemplazar con mi audio</option><option value="mix">Mezclar ambos audios</option></select><p class="hint">En modo manual se usa la pista importada.</p></div>
-<div class="group"><label class="label" for="aiEndpoint">Gemini AI backend URL</label><input class="select" id="aiEndpoint" type="url" placeholder="https://tu-worker.tu-subdominio.workers.dev"><p class="hint">Dirección del Worker de IA. La clave Gemini se guarda como secreto en Cloudflare, no aquí.</p></div>
+
 <div class="divider"></div>
 <div class="heading"><span>02</span><div><h2>Motion settings</h2><p>Controla el estilo visual.</p></div></div>
 <div class="group"><label class="label" for="effect">Estilo de movimiento</label><select class="select" id="effect"><option value="combo">Tweenslop combo</option><option value="bounce">Bounce</option><option value="spin">Spin</option><option value="zoom">Zoom punch</option><option value="shake">Shake</option><option value="trail">Ghost trail</option><option value="rainbow">Rainbow glow</option></select></div>
 <div class="group"><div class="rangehead"><label class="label" for="intensity">Intensidad</label><output id="intensityOut">75%</output></div><input id="intensity" type="range" min="0" max="100" value="75"></div>
 <label class="check"><input type="checkbox" id="beatSync" checked><span><b>Beat sync</b><small>Pulsos rítmicos visuales durante la reproducción.</small></span></label>
-<div class="note"><b>Gemini AI · Visual analysis</b><p>Analiza hasta seis fotogramas y recibe un plan real de movimientos. Requiere desplegar el Worker y configurar GEMINI_API_KEY como secreto.</p></div>
+<div class="note"><b>Local Vision AI · EfficientDet-Lite0</b><p>Un modelo de visión detecta objetos directamente en el navegador. Tus videos e imágenes no se envían a un servicio de IA.</p></div>
 </aside>
 <section class="panel editor">
 <div class="toolbar"><div><b>Preview canvas</b><div class="sub" id="meta">Esperando medios</div></div><span class="tag">16:9 · 720p target</span></div>
 <div class="stage"><canvas id="canvas" width="1280" height="720"></canvas><div class="empty" id="empty"><span class="play">▶</span><b>Tu proyecto aparecerá aquí</b><small>Importa un video o varias imágenes para empezar.</small></div></div>
-<div class="controls"><button class="btn primary" id="playBtn" disabled>▶ Preview</button><button class="btn" id="stopBtn" disabled>■ Stop</button><button class="btn" id="analyzeBtn" disabled>✦ Analyze with Gemini</button><div class="time"><strong id="now">00:00</strong> / <span id="duration">00:00</span></div><button class="btn primary" id="exportBtn" disabled>Export WebM ↗</button></div>
+<div class="controls"><button class="btn primary" id="playBtn" disabled>▶ Preview</button><button class="btn" id="stopBtn" disabled>■ Stop</button><button class="btn" id="analyzeBtn" disabled>✦ Analyze with Local AI</button><div class="time"><strong id="now">00:00</strong> / <span id="duration">00:00</span></div><button class="btn primary" id="exportBtn" disabled>Export WebM ↗</button></div>
 <div class="timeline-head"><b>Timeline</b><span id="timelineHint">Importa medios para generar la línea de tiempo</span></div><div class="timeline" id="timeline"><div class="emptytrack">No hay clips todavía</div></div>
 <div class="status" id="status" role="status">Listo para importar medios.</div>
 </section>
@@ -58,7 +58,7 @@ header{display:flex;justify-content:space-between;align-items:center;gap:15px;ma
 (function(){
 "use strict";
 const $=id=>document.getElementById(id),canvas=$("canvas"),ctx=canvas.getContext("2d"),video=$("video"),audio=$("audio");
-const s={mode:"auto",videoUrl:null,audioUrl:null,images:[],imageUrls:[],playing:false,exporting:false,aiBusy:false,aiPlan:null,raf:0,ac:null,dest:null,vg:null,ag:null,rec:null,chunks:[],elapsed:0};
+const s={mode:"auto",videoUrl:null,audioUrl:null,images:[],imageUrls:[],playing:false,exporting:false,aiBusy:false,aiPlan:null,detector:null,detectorPromise:null,raf:0,ac:null,dest:null,vg:null,ag:null,rec:null,chunks:[],elapsed:0};
 function msg(t,error){$("status").textContent=t;$("status").classList.toggle("error",!!error)}
 function time(t){t=Number.isFinite(t)&&t>0?t:0;return String(Math.floor(t/60)).padStart(2,"0")+":"+String(Math.floor(t%60)).padStart(2,"0")}
 function duration(){if(s.mode==="auto")return Number.isFinite(video.duration)?video.duration:0;if(audio.src&&Number.isFinite(audio.duration)&&audio.duration>0)return audio.duration;return Math.max(1,s.images.length)*1.25}
@@ -73,7 +73,7 @@ if(v.beat>.75){ctx.fillStyle="rgba(255,255,255,"+(v.beat*.1)+")";ctx.fillRect(0,
 function renderTimeline(){let el=$("timeline");el.replaceChildren();if(!ready()){let e=document.createElement("div");e.className="emptytrack";e.textContent="No hay clips todavía";el.appendChild(e);$("timelineHint").textContent="Importa medios para generar la línea de tiempo";return}
 if(s.mode==="auto"){let c=document.createElement("div");c.className="clip";let b=document.createElement("b");b.textContent=video.dataset.name||"Video clip";let sm=document.createElement("small");sm.textContent=time(duration());c.append(b,sm);el.appendChild(c);$("timelineHint").textContent="1 video clip · audio según selección"}
 else{s.images.forEach((im,i)=>{let c=document.createElement("div");c.className="clip";let b=document.createElement("b");b.textContent=im.dataset.name||("Frame "+(i+1));let sm=document.createElement("small");sm.textContent=time(i*1.25)+" · 1.25s";c.append(b,sm);el.appendChild(c)});$("timelineHint").textContent=s.images.length+" imágenes · 1.25 s por imagen"}}
-function ui(){let ok=ready();$("empty").classList.toggle("hidden",ok);$("playBtn").disabled=!ok||s.playing;$("stopBtn").disabled=!s.playing;$("analyzeBtn").disabled=!ok||s.playing||s.aiBusy;$("analyzeBtn").textContent=s.aiBusy?"Analyzing…":"✦ Analyze with Gemini";$("exportBtn").disabled=!ok||s.exporting;$("duration").textContent=time(duration());$("meta").textContent=ok?(s.mode==="auto"?"Video · "+time(duration())+" · "+(video.videoWidth||"?")+"×"+(video.videoHeight||"?"):s.images.length+" imágenes · "+time(duration())):"Esperando medios";renderTimeline();draw(0)}
+function ui(){let ok=ready();$("empty").classList.toggle("hidden",ok);$("playBtn").disabled=!ok||s.playing;$("stopBtn").disabled=!s.playing;$("analyzeBtn").disabled=!ok||s.playing||s.aiBusy;$("analyzeBtn").textContent=s.aiBusy?"Loading / analyzing…":"✦ Analyze with Local AI";$("exportBtn").disabled=!ok||s.exporting;$("duration").textContent=time(duration());$("meta").textContent=ok?(s.mode==="auto"?"Video · "+time(duration())+" · "+(video.videoWidth||"?")+"×"+(video.videoHeight||"?"):s.images.length+" imágenes · "+time(duration())):"Esperando medios";renderTimeline();draw(0)}
 function mode(m){stop(false);s.mode=m;let a=m==="auto";$("autoBtn").classList.toggle("active",a);$("manualBtn").classList.toggle("active",!a);$("autoGroup").classList.toggle("hidden",!a);$("manualGroup").classList.toggle("hidden",a);$("audioOptions").classList.toggle("hidden",!a);mix();msg(a?"Modo automático: importa un video.":"Modo manual: importa fotogramas y audio.");ui()}
 function loadVideo(f){if(!f)return;s.aiPlan=null;if(s.videoUrl)URL.revokeObjectURL(s.videoUrl);s.videoUrl=URL.createObjectURL(f);video.src=s.videoUrl;video.dataset.name=f.name;video.load();$("videoLabel").textContent=f.name+" · "+(f.size/1048576).toFixed(1)+" MB";video.onloadedmetadata=()=>{ui();msg("Video cargado: "+time(video.duration)+".")};video.onerror=()=>msg("No se pudo leer el video. Prueba MP4 H.264 o WebM compatible.",true)}
 function loadImages(list){s.aiPlan=null;s.imageUrls.forEach(URL.revokeObjectURL);s.imageUrls=[];s.images=[];let files=[...list].filter(f=>f.type.startsWith("image/"));if(!files.length){msg("Selecciona imágenes válidas.",true);return}Promise.all(files.map(f=>new Promise((res,rej)=>{let u=URL.createObjectURL(f),im=new Image();s.imageUrls.push(u);im.onload=()=>{im.dataset.name=f.name;res(im)};im.onerror=()=>rej(new Error("No se pudo abrir "+f.name));im.src=u}))).then(arr=>{s.images=arr;$("imagesLabel").textContent=arr.length+" imagen(es) seleccionadas";ui();msg(arr.length+" imágenes cargadas. Cada una dura 1.25 segundos.")}).catch(e=>msg(e.message,true))}
@@ -85,87 +85,140 @@ function tick(){if(!s.playing)return;let t=s.mode==="auto"?(video.currentTime||0
 function finish(){let was=s.exporting;stop(false);if(was&&s.rec&&s.rec.state!=="inactive")s.rec.stop();msg(was?"Render terminado; preparando archivo…":"Reproducción finalizada.")}
 function stop(show=true){cancelAnimationFrame(s.raf);s.raf=0;s.playing=false;video.pause();audio.pause();$("playBtn").disabled=!ready();$("stopBtn").disabled=true;$("exportBtn").disabled=!ready()||s.exporting;if(show)msg("Reproducción detenida.");if(!s.exporting)draw(s.elapsed)}
 
+async function getLocalDetector(){
+  if(s.detector)return s.detector;
+  if(!s.detectorPromise){
+    s.detectorPromise=(async()=>{
+      const mp=await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.mjs");
+      const vision=await mp.FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm");
+      const modelAssetPath="https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/int8/1/efficientdet_lite0.tflite";
+      const options={runningMode:"IMAGE",scoreThreshold:0.35,maxResults:5};
+      try{
+        s.detector=await mp.ObjectDetector.createFromOptions(vision,{...options,baseOptions:{modelAssetPath,delegate:"GPU"}});
+      }catch(gpuError){
+        s.detector=await mp.ObjectDetector.createFromOptions(vision,{...options,baseOptions:{modelAssetPath,delegate:"CPU"}});
+      }
+      return s.detector;
+    })().catch(error=>{s.detectorPromise=null;throw error});
+  }
+  return s.detectorPromise;
+}
+function analysisCanvas(source){
+  const width=source.videoWidth||source.naturalWidth;
+  const height=source.videoHeight||source.naturalHeight;
+  if(!width||!height)throw new Error("No se pudo leer un fotograma.");
+  const scale=Math.min(1,512/Math.max(width,height));
+  const frame=document.createElement("canvas");
+  frame.width=Math.max(1,Math.round(width*scale));
+  frame.height=Math.max(1,Math.round(height*scale));
+  frame.getContext("2d").drawImage(source,0,0,frame.width,frame.height);
+  return frame;
+}
 async function waitForVideoFrame(){
   if(video.readyState>=2)return;
   await new Promise((resolve,reject)=>{
     const ok=()=>{cleanup();resolve()},bad=()=>{cleanup();reject(new Error("No se pudo decodificar el video."))};
     const cleanup=()=>{video.removeEventListener("loadeddata",ok);video.removeEventListener("error",bad)};
-    video.addEventListener("loadeddata",ok,{once:true});video.addEventListener("error",bad,{once:true});
+    video.addEventListener("loadeddata",ok,{once:true});
+    video.addEventListener("error",bad,{once:true});
   });
-}
-function imagePart(source,at){
-  const w=source.videoWidth||source.naturalWidth,h=source.videoHeight||source.naturalHeight;
-  if(!w||!h)throw new Error("Fotograma sin dimensiones válidas.");
-  const max=512,scale=Math.min(1,max/Math.max(w,h)),c=document.createElement("canvas");
-  c.width=Math.max(1,Math.round(w*scale));c.height=Math.max(1,Math.round(h*scale));
-  c.getContext("2d").drawImage(source,0,0,c.width,c.height);
-  return {time:Number(at.toFixed(2)),mimeType:"image/jpeg",data:c.toDataURL("image/jpeg",0.72).split(",")[1]};
 }
 async function seekForAnalysis(target){
   if(Math.abs(video.currentTime-target)<0.025){await new Promise(requestAnimationFrame);return}
   await new Promise((resolve,reject)=>{
     const timer=setTimeout(()=>{cleanup();reject(new Error("Tiempo de espera al extraer un fotograma."))},8000);
-    const done=()=>{cleanup();resolve()},fail=()=>{cleanup();reject(new Error("No se pudo leer un fotograma del video."))};
+    const done=()=>{cleanup();resolve()},fail=()=>{cleanup();reject(new Error("No se pudo leer un fotograma."))};
     const cleanup=()=>{clearTimeout(timer);video.removeEventListener("seeked",done);video.removeEventListener("error",fail)};
     video.addEventListener("seeked",done,{once:true});video.addEventListener("error",fail,{once:true});
-    try{video.currentTime=target}catch(e){cleanup();reject(e)}
+    try{video.currentTime=target}catch(error){cleanup();reject(error)}
   });
 }
-async function collectAnalysisFrames(){
+async function collectLocalFrames(){
   const frames=[];
   if(s.mode==="manual"){
     const count=Math.min(6,s.images.length);
     for(let i=0;i<count;i++){
       const index=count===1?0:Math.round(i*(s.images.length-1)/(count-1));
-      frames.push(imagePart(s.images[index],index*1.25));
+      frames.push({time:index*1.25,canvas:analysisCanvas(s.images[index])});
     }
     return frames;
   }
   await waitForVideoFrame();
   const oldTime=video.currentTime;
-  const len=Number.isFinite(video.duration)?video.duration:0;
-  if(!len)throw new Error("El video todavía no tiene duración disponible.");
-  const count=Math.min(6,Math.max(3,Math.ceil(len/4)));
+  const length=Number.isFinite(video.duration)?video.duration:0;
+  if(!length)throw new Error("El video no tiene una duración válida.");
+  const count=Math.min(6,Math.max(3,Math.ceil(length/4)));
   video.pause();
   try{
     for(let i=0;i<count;i++){
-      const at=count===1?0:Math.min(Math.max(0,len-0.08),i*(len-0.08)/(count-1));
+      const at=count===1?0:Math.min(Math.max(0,length-0.08),i*(length-0.08)/(count-1));
       await seekForAnalysis(at);
-      frames.push(imagePart(video,at));
+      frames.push({time:at,canvas:analysisCanvas(video)});
     }
   }finally{
-    try{await seekForAnalysis(Math.min(oldTime,Math.max(0,len-0.08)))}catch(_){}
+    try{await seekForAnalysis(Math.min(oldTime,Math.max(0,length-0.08)))}catch(_){}
   }
   return frames;
 }
-async function analyzeWithGemini(){
+function chooseMotion(detection,previous){
+  const category=detection.categories&&detection.categories[0]||{};
+  const label=String(category.categoryName||"object").toLowerCase();
+  const score=Math.max(0,Math.min(1,Number(category.score)||0.45));
+  const box=detection.boundingBox||{};
+  const x=Number(box.originX)||0,y=Number(box.originY)||0;
+  const width=Number(box.width)||0,height=Number(box.height)||0;
+  const cx=x+width/2,cy=y+height/2,area=width*height;
+  let effect="combo";
+  if(previous&&previous.label===label){
+    const movement=Math.hypot(cx-previous.cx,cy-previous.cy);
+    const scaleChange=Math.abs(area-previous.area)/Math.max(previous.area,1);
+    if(scaleChange>0.22)effect="zoom";
+    else if(movement>Math.max(24,Math.min(box.width||80,box.height||80)*0.35))effect="trail";
+    else if(["person","dog","cat","bird","horse"].includes(label))effect="bounce";
+    else effect="spin";
+  }else if(["person","dog","cat","bird","horse"].includes(label))effect="bounce";
+  else if(["sports ball","frisbee"].includes(label))effect="spin";
+  else if(["car","motorcycle","bus","truck","train","airplane","boat","bicycle"].includes(label))effect="shake";
+  else if(area>90000)effect="zoom";
+  return {label,score,cx,cy,area,effect};
+}
+async function analyzeWithLocalAI(){
   if(!ready()||s.aiBusy||s.playing)return;
-  let endpoint=$("aiEndpoint").value.trim();
-  while(endpoint.endsWith("/"))endpoint=endpoint.slice(0,-1);
-  if(!endpoint){msg("Primero pega la URL base de tu Cloudflare Worker en Gemini AI backend URL.",true);$("aiEndpoint").focus();return}
-  if(!endpoint.startsWith("https://")){msg("La URL del backend debe comenzar con https://",true);return}
-  s.aiBusy=true;$("analyzeBtn").disabled=true;$("analyzeBtn").textContent="Analyzing…";msg("Preparando fotogramas para Gemini…");
+  s.aiBusy=true;ui();msg("Cargando el modelo de visión local (primera vez puede tardar)…");
   try{
-    const frames=await collectAnalysisFrames();
-    msg("Enviando "+frames.length+" fotogramas a Gemini para analizar…");
-    const response=await fetch(endpoint+"/api/analyze",{
-      method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({mode:s.mode,duration:duration(),style:$("effect").value,intensity:Number($("intensity").value),frames})
-    });
-    const data=await response.json().catch(()=>null);
-    if(!response.ok)throw new Error(data&&data.error?data.error:"El backend respondió HTTP "+response.status+".");
-    if(!data||!Array.isArray(data.events))throw new Error("Gemini devolvió un plan de animación inválido.");
-    const allowed=new Set(["combo","bounce","spin","zoom","shake","trail","rainbow"]);
-    s.aiPlan={summary:String(data.summary||"Plan generado por Gemini"),events:data.events.filter(e=>e&&allowed.has(e.effect)).map(e=>({time:Math.max(0,Math.min(duration(),Number(e.time)||0)),duration:Math.max(.15,Math.min(3.5,Number(e.duration)||.6)),effect:e.effect,strength:Math.max(0,Math.min(1,Number(e.strength)||0))})).sort((a,b)=>a.time-b.time)};
-    if(!s.aiPlan.events.length)throw new Error("Gemini no devolvió eventos de animación utilizables. Prueba con otro video o imágenes más claras.");
+    const detector=await getLocalDetector();
+    const frames=await collectLocalFrames();
+    const events=[],seen=new Map(),labels=new Map();
+    const eventDuration=Math.max(.45,Math.min(1.8,duration()/Math.max(1,frames.length)*.88));
+    for(let i=0;i<frames.length;i++){
+      msg("IA local analizando fotograma "+(i+1)+"/"+frames.length+"…");
+      const result=detector.detect(frames[i].canvas);
+      const detections=(result.detections||[]).filter(d=>d.categories&&d.categories.length)
+        .sort((a,b)=>(b.categories[0].score||0)-(a.categories[0].score||0));
+      if(!detections.length)continue;
+      const chosen=detections[0];
+      const motion=chooseMotion(chosen,seen.get(String(chosen.categories[0].categoryName||"object").toLowerCase()));
+      seen.set(motion.label,motion);
+      labels.set(motion.label,Math.max(labels.get(motion.label)||0,motion.score));
+      events.push({
+        time:frames[i].time,
+        duration:eventDuration,
+        effect:motion.effect,
+        strength:Math.max(.35,Math.min(.95,.35+motion.score*.6)),
+        label:motion.label
+      });
+    }
+    if(!events.length)throw new Error("No se detectaron objetos conocidos. Prueba con un fotograma más claro.");
+    s.aiPlan={summary:"Detectado: "+[...labels.keys()].slice(0,5).join(", "),events:events.sort((a,b)=>a.time-b.time)};
     draw(0);
-    msg("Gemini: "+s.aiPlan.summary+" · "+s.aiPlan.events.length+" eventos listos.");
-  }catch(e){msg("No se pudo analizar con Gemini: "+(e&&e.message?e.message:"error desconocido"),true)}
-  finally{s.aiBusy=false;ui()}
+    msg("IA local lista: "+s.aiPlan.summary+" · "+events.length+" eventos de movimiento.");
+  }catch(error){
+    msg("No se pudo ejecutar la IA local: "+(error&&error.message?error.message:"error desconocido"),true);
+  }finally{s.aiBusy=false;ui()}
 }
 
 async function exportWebM(){if(!ready()||s.exporting)return;if(!window.MediaRecorder||!canvas.captureStream){msg("Este navegador no admite MediaRecorder/captureStream.",true);return}try{await audioGraph();await s.ac.resume();let stream=canvas.captureStream(30);s.dest.stream.getAudioTracks().forEach(t=>stream.addTrack(t));let types=["video/webm;codecs=vp9,opus","video/webm;codecs=vp8,opus","video/webm"],type=types.find(t=>MediaRecorder.isTypeSupported(t));if(!type)throw Error("No hay códec WebM disponible");s.chunks=[];s.rec=new MediaRecorder(stream,{mimeType:type});s.rec.ondataavailable=e=>{if(e.data&&e.data.size)s.chunks.push(e.data)};s.rec.onstop=()=>{let blob=new Blob(s.chunks,{type:type});if(blob.size){let u=URL.createObjectURL(blob),a=document.createElement("a");a.href=u;a.download="tweenslop-"+Date.now()+".webm";a.click();setTimeout(()=>URL.revokeObjectURL(u),30000);msg("Exportación lista · "+(blob.size/1048576).toFixed(1)+" MB · WebM")}else msg("La grabación no generó datos.",true);stream.getTracks().forEach(t=>t.stop());s.exporting=false;s.rec=null;ui()};s.exporting=true;s.rec.start(250);await play();if(!s.playing){s.rec.stop();throw Error("No se pudo iniciar la reproducción")}}catch(e){s.exporting=false;msg("No se pudo exportar: "+e.message,true);ui()}}
-$("autoBtn").onclick=()=>mode("auto");$("manualBtn").onclick=()=>mode("manual");$("videoInput").onchange=e=>loadVideo(e.target.files[0]);$("imagesInput").onchange=e=>loadImages(e.target.files);$("audioInput").onchange=e=>loadAudio(e.target.files[0]);$("audioMode").onchange=mix;$("intensity").oninput=()=>{$("intensityOut").textContent=$("intensity").value+"%";draw(s.elapsed)};$("effect").onchange=()=>draw(s.elapsed);$("beatSync").onchange=()=>draw(s.elapsed);$("playBtn").onclick=play;$("stopBtn").onclick=()=>{let ex=s.exporting;stop();if(ex&&s.rec&&s.rec.state!=="inactive")s.rec.stop();s.exporting=false};$("exportBtn").onclick=exportWebM;$("analyzeBtn").onclick=analyzeWithGemini;
+$("autoBtn").onclick=()=>mode("auto");$("manualBtn").onclick=()=>mode("manual");$("videoInput").onchange=e=>loadVideo(e.target.files[0]);$("imagesInput").onchange=e=>loadImages(e.target.files);$("audioInput").onchange=e=>loadAudio(e.target.files[0]);$("audioMode").onchange=mix;$("intensity").oninput=()=>{$("intensityOut").textContent=$("intensity").value+"%";draw(s.elapsed)};$("effect").onchange=()=>draw(s.elapsed);$("beatSync").onchange=()=>draw(s.elapsed);$("playBtn").onclick=play;$("stopBtn").onclick=()=>{let ex=s.exporting;stop();if(ex&&s.rec&&s.rec.state!=="inactive")s.rec.stop();s.exporting=false};$("exportBtn").onclick=exportWebM;$("analyzeBtn").onclick=analyzeWithLocalAI;
 window.addEventListener("beforeunload",()=>{stop(false);if(s.videoUrl)URL.revokeObjectURL(s.videoUrl);if(s.audioUrl)URL.revokeObjectURL(s.audioUrl);s.imageUrls.forEach(URL.revokeObjectURL)});
 draw(0);ui();
 })();
