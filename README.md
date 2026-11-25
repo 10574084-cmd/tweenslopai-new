@@ -1,52 +1,43 @@
 # TweenSlop AI — Animation Lab
 
-Static GitHub Pages editor plus an optional Gemini-powered analysis API.
+A static browser-based animation editor with an on-device computer-vision model.
 
-## Frontend
+## Current prototype
 
-- **Automatic mode:** imports one video, samples up to six frames locally, and sends only those still frames for AI analysis.
-- **Manual mode:** imports multiple still images and sends up to six representative images for AI analysis.
-- **Audio:** preserve original video audio, replace it with an imported audio track, or mix both. Manual mode uses imported audio.
+- **Automatic mode:** imports a video, samples up to six frames locally, and analyzes them with MediaPipe Object Detector.
+- **Manual mode:** imports several still images and analyzes up to six representative images.
+- **Local vision AI:** EfficientDet-Lite0 detects common objects and their bounding boxes in the browser. A motion planner maps detections and changes between frames to animation events.
+- **Audio:** preserve the video's original audio, replace it with an imported track, or mix both. Manual mode uses imported audio.
 - **Effects:** combo, bounce, spin, zoom, shake, ghost trail and rainbow glow.
 - **Export:** WebM through browser MediaRecorder when supported.
 
-## Enable real Gemini analysis
+## How the local AI works
 
-The AI backend is a Cloudflare Worker. **Do not put the Gemini API key in index.html, GitHub, or any public file.**
+The page loads MediaPipe Tasks Vision from jsDelivr and the EfficientDet-Lite0 int8 model from Google's MediaPipe model storage. Inference runs in the browser. Videos, images and audio are not uploaded to a model API.
 
-1. Create a Gemini API key in Google AI Studio: https://aistudio.google.com/app/apikey
-2. In Cloudflare, open **Workers & Pages → Create → Worker**. Create a Worker named `tweenslop-gemini-api`.
-3. Open the Worker's **Edit code** view and paste the contents of `worker/index.js`. Deploy it.
-4. Open **Settings → Variables and Secrets** for that Worker.
-5. Add a secret named `GEMINI_API_KEY` and paste the key there. Save/deploy the updated Worker.
-6. Open the Worker's `workers.dev` URL plus `/health`. It should return JSON with `ok: true`.
-7. In TweenSlop AI, paste the base Worker URL (without `/api/analyze`) into **Gemini AI backend URL**.
-8. Import a video or images and press **Analyze with Gemini**.
+The detector recognizes a fixed set of common object categories (COCO) and returns category labels, confidence scores and bounding boxes. The app uses those detections to create a simple animation plan. It is a genuine trained vision model, but it is **not** a generative chat model and does not understand arbitrary characters or produce new video frames.
 
-The frontend calls `POST /api/analyze`. The Worker sends the sampled JPEG frames to `gemini-3.8-flash` and returns structured animation events. The API key stays in the Cloudflare Worker secret. The Worker currently allows browser requests from `https://10574084-cmd.github.io`.
-
-## Worker files
-
-- `worker/index.js`: Gemini proxy, input limits, CORS and JSON validation.
-- `wrangler.toml`: optional Wrangler deployment configuration.
-
-You can deploy using Cloudflare's dashboard editor; Wrangler/terminal is not required for the dashboard method.
-
-## Current AI scope and limitations
-
-- Gemini analyzes **up to six sampled still frames**, not every video frame continuously. This is a visual scene/motion plan, not full frame-by-frame video generation.
-- The uploaded video and separate audio are not uploaded as whole files. Only sampled JPEG frames are sent to Gemini. Audio remains in the browser and is played/mixed locally.
-- Beat sync is still a simple local pulse; audio-aware beat detection is a future module.
-- The current editor applies the returned effects globally during each event window. Per-object masks, subject tracking and editable keyframes are future work.
-- Keep clips short for the first prototype. The browser samples at most six frames and the Worker limits requests to 5 MB.
-- Gemini API usage is subject to the current account's quotas, model availability and terms. See https://ai.google.dev/gemini-api/docs/models and https://ai.google.dev/gemini-api/docs/pricing.
+The first model load needs an internet connection. The model is around 4.6 MB; the WebAssembly runtime is loaded separately. Supported browser/device performance varies. GPU is tried first, with CPU fallback.
 
 ## GitHub Pages
 
-This repository publishes from the root of `main`:
-
 1. Open **Settings → Pages**.
 2. Choose **Deploy from a branch**.
-3. Select `main` and `/(root)`, then Save.
+3. Select branch `main` and folder `/(root)`.
+4. Save and wait for publishing.
 
 Site URL: https://10574084-cmd.github.io/tweenslopai-new/
+
+## Current limitations
+
+- The video is sampled at up to six points, not processed continuously frame by frame.
+- Detection covers common COCO categories only. Small, obscured, stylized or unusual characters may not be detected.
+- The current renderer applies effects to the whole frame; bounding-box subject isolation and per-object motion are future work.
+- Beat sync remains a basic local pulse, not a dedicated music beat detector.
+- Manual clips currently last 1.25 seconds each; editable multi-track keyframes are future work.
+- Export is WebM. MP4 export is not included.
+- Large videos can use substantial memory. Short clips are recommended.
+
+## Privacy
+
+The selected media stays in the browser in this version. The JavaScript library and model weights are downloaded from their published hosting locations, but the video/image/audio content is not sent to an AI API.
