@@ -2,19 +2,19 @@ const MODEL = "gemini-3.8-flash";
 const ALLOWED_ORIGIN = "https://10574084-cmd.github.io";
 const EFFECTS = new Set(["combo", "bounce", "spin", "zoom", "shake", "trail", "rainbow"]);
 const JSON_SCHEMA = {
-  type: "OBJECT",
+  type: "object",
   properties: {
-    summary: { type: "STRING" },
+    summary: { type: "string" },
     events: {
-      type: "ARRAY",
+      type: "array",
       items: {
-        type: "OBJECT",
+        type: "object",
         properties: {
-          time: { type: "NUMBER" },
-          duration: { type: "NUMBER" },
-          effect: { type: "STRING", enum: ["combo", "bounce", "spin", "zoom", "shake", "trail", "rainbow"] },
-          strength: { type: "NUMBER" },
-          reason: { type: "STRING" }
+          time: { type: "number" },
+          duration: { type: "number" },
+          effect: { type: "string", enum: ["combo", "bounce", "spin", "zoom", "shake", "trail", "rainbow"] },
+          strength: { type: "number" },
+          reason: { type: "string" }
         },
         required: ["time", "duration", "effect", "strength", "reason"]
       }
