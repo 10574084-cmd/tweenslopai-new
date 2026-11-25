@@ -140,14 +140,15 @@ async function collectAnalysisFrames(){
 }
 async function analyzeWithGemini(){
   if(!ready()||s.aiBusy||s.playing)return;
-  const endpoint=$("aiEndpoint").value.trim().replace(/\\/+$/,"");
+  let endpoint=$("aiEndpoint").value.trim();
+  while(endpoint.endsWith("/"))endpoint=endpoint.slice(0,-1);
   if(!endpoint){msg("Primero pega la URL base de tu Cloudflare Worker en Gemini AI backend URL.",true);$("aiEndpoint").focus();return}
-  if(!/^https:\\/\\//i.test(endpoint)){msg("La URL del backend debe comenzar con https://",true);return}
+  if(!endpoint.startsWith("https://")){msg("La URL del backend debe comenzar con https://",true);return}
   s.aiBusy=true;$("analyzeBtn").disabled=true;$("analyzeBtn").textContent="Analyzing…";msg("Preparando fotogramas para Gemini…");
   try{
     const frames=await collectAnalysisFrames();
     msg("Enviando "+frames.length+" fotogramas a Gemini para analizar…");
-    const response=await fetch(endpoint.replace(/\\/$/,"")+"/api/analyze",{
+    const response=await fetch(endpoint+"/api/analyze",{
       method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({mode:s.mode,duration:duration(),style:$("effect").value,intensity:Number($("intensity").value),frames})
     });
